@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>3D Tetris Mobile</title>
+<style>
+    body {
+        margin: 0;
+        background: #000;
+        color: white;
+        font-family: sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        overflow: hidden;
+    }
+    canvas {
+        background: #111;
+        display: block;
+        touch-action: none; /* prevent scroll on swipe */
+    }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+let COLS = 5, ROWS = 12, DEPTH = 5;
+let BLOCK;
+const SPEED = 500;
+
+function resizeGame() {
+    const canvas = document.getElementById("game");
+    const size = Math.min(window.innerWidth, window.innerHeight);
+    canvas.width = size;
+    canvas.height = size;
+    BLOCK = size / 10;
+}
+window.addEventListener("resize", resizeGame);
+resizeGame();
+
+let board = [];
+for (let z = 0; z < DEPTH; z++) {
+    let layer = [];
+    for (let y = 0; y < ROWS; y++) {
+        layer.push(Array(COLS).fill(0));
+    }
+    board.push(layer);
+}
+
+const shapes = [
+    [[[1,1],[1,1]]],
+    [[[1,1,1,1]]],
+    [[[1,1,1],[0,1,0]]],
+    [[[1,1,0],[0,1,1]]],
+    [[[0,1,1],[1,1,0]]]
+];
+
+let current = randomPiece();
+let pos = {x: 1, y: 0, z: 0};
+let lastTick = 0;
+let gameOver = false;
+
+function randomPiece() {
+    return JSON.parse(JSON.stringify(shapes[Math.floor(Math.random()*shapes.length)]));
+}
+
+function collides(piece, offX, offY, offZ) {
+    for (let z = 0; z < piece.length; z++) {
+        for (let y = 0; y < piece[z].length; y++) {
+            for (let x = 0; x < piece[z][y].length; x++) {
+                if (piece[z][y][x]) {
+                    let nx = x + offX;
+                    let ny = y + offY;
+                    let nz = z + offZ;
+                    if (nx < 0 || nx >= COLS || ny >= ROWS || nz >= DEPTH || ny < 0 || nz < 0) return true;
+                    if (board[nz][ny][nx]) return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+function merge(piece, offX, offY, offZ) {
+    for (let z = 0; z < piece.length; z++) {
+        for (let y = 0; y < piece[z].length; y++) {
+            for (let x = 0; x < piece[z][y].length; x++) {
+                if (piece[z][y][x]) board[z+offZ][y+offY][x+offX] = 1;
+            }
+        }
+    }
+}
+
+function clearLayers() {
+    for (let z = 0; z < DEPTH; z++) {
+        for (let y = ROWS - 1; y >= 0; y--) {
+            if (board[z][y].every(cell => cell === 1)) {
+                board[z].splice(y, 1);
+                board[z].unshift(Array(COLS).fill(0));
+                y++;
+            }
+        }
+    }
+}
+
+const ctx = document.getElementById("game").getContext("2d");
+
+function drawBlock(x, y, z, color = "#0ff") {
+    let isoX = (x - z) * BLOCK + ctx.canvas.width / 2;
+    let isoY = (x + z) * BLOCK / 2 - y * BLOCK + ctx.canvas.height * 0.75;
+    ctx.fillStyle = color;
+    ctx.fillRect(isoX, isoY, BLOCK - 2, BLOCK - 2);
+}
+
+function drawBoard() {
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+    for (let z = 0; z < DEPTH; z++) {
+        for (let y = 0; y < ROWS; y++) {
+            for (let x = 0; x < COLS; x++) {
+                if (board[z][y][x]) drawBlock(x, y, z, "#0f0");
+            }
+        }
+    }
+    for (let z = 0; z < current.length; z++) {
+        for (let y = 0; y < current[z].length; y++) {
+            for (let x = 0; x < current[z][y].length; x++) {
+                if (current[z][y][x]) drawBlock(x + pos.x, y + pos.y, z + pos.z, "#0ff");
+            }
+        }
+    }
+}
+
+function update(time = 0) {
+    if (gameOver) return;
+    if (time - lastTick > SPEED) {
+        lastTick = time;
+        if (!collides(current, pos.x, pos.y + 1, pos.z)) {
+            pos.y++;
+        } else {
+            merge(current, pos.x, pos.y, pos.z);
+            clearLayers();
+            pos = {x: 1, y: 0, z: 0};
+            current = randomPiece();
+            if (collides(current, pos.x, pos.y, pos.z)) {
+                gameOver = true;
+                alert("Game Over!");
+            }
+        }
+    }
+    drawBoard();
+    requestAnimationFrame(update);
+}
+requestAnimationFrame(update);
+
+// ==== SWIPE CONTROLS ====
+let startX, startY;
+document.getElementById("game").addEventListener("touchstart", e => {
+    const t = e.touches[0];
+    startX = t.clientX;
+    startY = t.clientY;
+}, {passive: true});
+
+document.getElementById("game").addEventListener("touchend", e => {
+    const t = e.changedTouches[0];
+    let dx = t.clientX - startX;
+    let dy = t.clientY - startY;
+    if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 30 && !collides(current, pos.x + 1, pos.y, pos.z)) pos.x++;
+        else if (dx < -30 && !collides(current, pos.x - 1, pos.y, pos.z)) pos.x--;
+    } else {
+        if (dy > 30) { // swipe down
+            while (!collides(current, pos.x, pos.y + 1, pos.z)) pos.y++;
+        } else if (dy < -30) { // swipe up
+            if (!collides(current, pos.x, pos.y, pos.z - 1)) pos.z--;
+        }
+    }
+}, {passive: true});
+</script>
+</body>
+</html>
